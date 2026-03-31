@@ -73,8 +73,9 @@ def parse():
             return jsonify({"error": "No shifts could be parsed from the input"}), 422
 
         return jsonify({"shifts": shifts})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    except Exception:
+        app.logger.exception("Failed to parse schedule input")
+        return jsonify({"error": "An internal error occurred while parsing the input"}), 500
 
 
 @app.route("/create-events", methods=["POST"])
@@ -87,9 +88,13 @@ def create_events():
     if not shifts:
         return jsonify({"error": "No shifts provided"}), 400
 
-    results = calendar_api.create_events(shifts)
+    try:
+        results = calendar_api.create_events(shifts)
+    except Exception:
+        app.logger.exception("Failed to create calendar events")
+        return jsonify({"error": "An internal error occurred while creating events"}), 500
     return jsonify({"results": results})
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    app.run(debug=False, port=5000)
