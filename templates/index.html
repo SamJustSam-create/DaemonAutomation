@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Shift → Google Calendar</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+<header>
+  <h1>Shift → Google Calendar</h1>
+  {% if has_credentials %}
+    <a href="{% if authenticated %}#{% else %}/auth/google{% endif %}"
+       class="auth-badge {% if authenticated %}connected{% endif %}"
+       id="auth-badge">
+      <span class="dot"></span>
+      <span id="auth-label">{% if authenticated %}Connected{% else %}Connect Google Calendar{% endif %}</span>
+    </a>
+  {% else %}
+    <span class="auth-badge" title="Place credentials/google_creds.json to enable">No credentials</span>
+  {% endif %}
+</header>
+
+<div class="card">
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="text">Paste Text</button>
+    <button class="tab-btn" data-tab="image">Upload Screenshot</button>
+  </div>
+
+  <!-- Text tab -->
+  <div class="tab-panel active" id="tab-text">
+    <textarea id="schedule-text" placeholder="Paste your schedule here, e.g.:
+
+Monday 06/Apr/2026
+STRATH VILLAGE VIC
+Start 6:00 AM Monday 06/Apr/2026
+Finish 1:00 PM Monday 06/Apr/2026
+Break time 9:30 AM - 10:00 AM
+6:30hrs + 0:30hrs Break
+DT2:DT Intermediate - OTC
+
+Tuesday 07/Apr/2026
+..."></textarea>
+  </div>
+
+  <!-- Image tab -->
+  <div class="tab-panel" id="tab-image">
+    <div class="drop-zone" id="drop-zone">
+      <input type="file" id="image-input" accept="image/*" />
+      <div id="drop-hint">
+        <svg width="36" height="36" fill="none" stroke="#9ca3af" stroke-width="1.5" viewBox="0 0 24 24">
+          <path d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"/>
+        </svg>
+        <p style="margin-top:0.5rem">Drop screenshot here or <strong>click to browse</strong></p>
+        <p style="font-size:0.8rem;color:#9ca3af;margin-top:0.25rem">PNG, JPG, WEBP supported</p>
+      </div>
+      <img id="image-preview" class="preview-img" style="display:none" alt="Preview" />
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="btn btn-primary" id="parse-btn">
+      <span class="btn-label">Parse Shifts</span>
+      <span class="spinner"></span>
+    </button>
+  </div>
+</div>
+
+<!-- Results -->
+<div class="card" id="results-card">
+  <p class="section-title">Parsed Shifts — select which to add</p>
+  <table>
+    <thead>
+      <tr>
+        <th><input type="checkbox" id="check-all" checked title="Select all" /></th>
+        <th>Date</th>
+        <th>Start</th>
+        <th>Finish</th>
+        <th>Description</th>
+      </tr>
+    </thead>
+    <tbody id="shifts-tbody"></tbody>
+  </table>
+  <div class="actions">
+    <button class="btn btn-success" id="add-btn" {% if not authenticated %}disabled title="Connect Google Calendar first"{% endif %}>
+      <span class="btn-label">Add to Google Calendar</span>
+      <span class="spinner"></span>
+    </button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+  // ── Tab switching ──────────────────────────────────────────────
+  let activeTab = 'text';
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      activeTab = btn.dataset.tab;
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('tab-' + activeTab).classList.add('active');
+    });
+  });
+
+  // ── Image drop zone ────────────────────────────────────────────
+  const dropZone = document.getElementById('drop-zone');
+  const imageInput = document.getElementById('image-input');
+  const imagePreview = document.getElementById('image-preview');
+  const dropHint = document.getElementById('drop-hint');
+  let selectedFile = null;
+
+  dropZone.addEventListener('click', () => imageInput.click());
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);
+  });
+  imageInput.addEventListener('change', () => { if (imageInput.files[0]) setFile(imageInput.files[0]); });
+
+  function setFile(file) {
+    selectedFile = file;
+    const url = URL.createObjectURL(file);
+    imagePreview.src = url;
+    imagePreview.style.display = 'block';
+    dropHint.style.display = 'none';
+  }
+
+  // ── Parse ──────────────────────────────────────────────────────
+  const parseBtn = document.getElementById('parse-btn');
+  parseBtn.addEventListener('click', async () => {
+    setLoading(parseBtn, true);
+    try {
+      const fd = new FormData();
+      if (activeTab === 'image' && selectedFile) {
+        fd.append('image', selectedFile);
+      } else {
+        const text = document.getElementById('schedule-text').value.trim();
+        if (!text) { showToast('Please paste your schedule text first.', true); return; }
+        fd.append('text', text);
+      }
+      const res = await fetch('/parse', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error || 'Parse failed', true); return; }
+      renderShifts(data.shifts);
+    } catch(e) {
+      showToast('Network error: ' + e.message, true);
+    } finally {
+      setLoading(parseBtn, false);
+    }
+  });
+
+  // ── Render parsed shifts ───────────────────────────────────────
+  let parsedShifts = [];
+
+  function renderShifts(shifts) {
+    parsedShifts = shifts;
+    const tbody = document.getElementById('shifts-tbody');
+    tbody.innerHTML = '';
+    shifts.forEach((s, i) => {
+      const startTime = formatTime(s.start);
+      const endTime = formatTime(s.end);
+      const dateStr = formatDate(s.date);
+      const uniformBadge = s.special_uniform ? '<span class="badge-uniform">Uniform</span>' : '';
+      tbody.innerHTML += `
+        <tr>
+          <td><input type="checkbox" class="shift-check" data-idx="${i}" checked /></td>
+          <td>${dateStr}</td>
+          <td>${startTime}</td>
+          <td>${endTime}</td>
+          <td>${escHtml(s.description)}${uniformBadge}</td>
+        </tr>`;
+    });
+    document.getElementById('results-card').style.display = 'block';
+    document.getElementById('results-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  document.getElementById('check-all').addEventListener('change', function() {
+    document.querySelectorAll('.shift-check').forEach(c => c.checked = this.checked);
+  });
+
+  // ── Add to Calendar ────────────────────────────────────────────
+  const addBtn = document.getElementById('add-btn');
+  addBtn.addEventListener('click', async () => {
+    const selected = [...document.querySelectorAll('.shift-check:checked')]
+      .map(c => parsedShifts[parseInt(c.dataset.idx)]);
+    if (!selected.length) { showToast('No shifts selected', true); return; }
+
+    setLoading(addBtn, true);
+    try {
+      const res = await fetch('/create-events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shifts: selected }),
+      });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error || 'Failed', true); return; }
+      showResults(data.results);
+    } catch(e) {
+      showToast('Network error: ' + e.message, true);
+    } finally {
+      setLoading(addBtn, false);
+    }
+  });
+
+  function showResults(results) {
+    const ok = results.filter(r => r.success).length;
+    const fail = results.length - ok;
+    // Update table rows with status icons
+    const checks = document.querySelectorAll('.shift-check');
+    results.forEach((r, i) => {
+      const row = checks[i]?.closest('tr');
+      if (!row) return;
+      const firstCell = row.cells[0];
+      if (r.success) {
+        firstCell.innerHTML = '<span class="status-ok">✓</span>';
+        if (r.link) row.cells[4].innerHTML += ` <a href="${r.link}" target="_blank" style="font-size:0.8rem;color:#4f46e5">View</a>`;
+      } else {
+        firstCell.innerHTML = '<span class="status-err">✗</span>';
+        row.title = r.error || 'Error';
+      }
+    });
+    showToast(`${ok} event${ok !== 1 ? 's' : ''} added${fail ? `, ${fail} failed` : ''}.`);
+  }
+
+  // ── Helpers ────────────────────────────────────────────────────
+  function formatTime(iso) {
+    const d = new Date(iso);
+    return d.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: true });
+  }
+  function formatDate(iso) {
+    const d = new Date(iso + 'T00:00:00');
+    return d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  }
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+  function setLoading(btn, on) {
+    btn.classList.toggle('loading', on);
+    btn.disabled = on;
+  }
+
+  let toastTimer;
+  function showToast(msg, isError = false) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.toggle('error', isError);
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), 4000);
+  }
+</script>
+</body>
+</html>
