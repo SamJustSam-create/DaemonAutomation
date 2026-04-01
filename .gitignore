@@ -5,3 +5,4 @@ credentials/
 *.egg-info/
 .venv/
 venv/
+IDEAS.md

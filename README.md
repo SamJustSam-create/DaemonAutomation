@@ -124,7 +124,11 @@ credentials/google_creds.json
 ## Usage
 
 ```bash
+# Production (default) — uses Waitress WSGI server
 python app.py
+
+# Development — enables auto-reload and debug output
+python app.py --debug
 ```
 
 Open [http://localhost:5000](http://localhost:5000) in your browser.

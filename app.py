@@ -91,5 +91,28 @@ def create_events():
     return jsonify({"results": results})
 
 
+@app.route("/undo-events", methods=["POST"])
+def undo_events():
+    if not calendar_api.is_authenticated():
+        return jsonify({"error": "Not authenticated with Google Calendar"}), 401
+    data = request.get_json()
+    event_ids = data.get("event_ids", [])
+    if not event_ids:
+        return jsonify({"error": "No event IDs provided"}), 400
+    results = calendar_api.delete_events(event_ids)
+    return jsonify({"results": results})
+
+
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    import argparse
+    from waitress import serve
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--debug", action="store_true", help="Run Flask dev server with auto-reload")
+    args = parser.parse_args()
+
+    if args.debug:
+        app.run(debug=True, port=5000)
+    else:
+        print("Serving on http://localhost:5000")
+        serve(app, host="127.0.0.1", port=5000)

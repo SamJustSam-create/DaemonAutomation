@@ -1,4 +1,3 @@
-import os
 import base64
 import hashlib
 import secrets
@@ -97,6 +96,22 @@ def create_event(shift: dict) -> dict:
         sendUpdates="all",
     ).execute()
     return created
+
+
+def delete_events(event_ids: list[str]) -> list[dict]:
+    """Delete Google Calendar events by ID."""
+    creds = _get_credentials()
+    if not creds:
+        raise RuntimeError("Not authenticated with Google Calendar")
+    service = build("calendar", "v3", credentials=creds)
+    results = []
+    for eid in event_ids:
+        try:
+            service.events().delete(calendarId="primary", eventId=eid).execute()
+            results.append({"event_id": eid, "success": True})
+        except Exception as e:
+            results.append({"event_id": eid, "success": False, "error": str(e)})
+    return results
 
 
 def create_events(shifts: list[dict]) -> list[dict]:

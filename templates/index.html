@@ -3,23 +3,41 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Shift → Google Calendar</title>
+  <title>Shift Sync — Google Calendar</title>
+  <script>
+    const _t = localStorage.getItem('theme');
+    if (_t) document.documentElement.setAttribute('data-theme', _t);
+  </script>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
 
 <header>
-  <h1>Shift → Google Calendar</h1>
-  {% if has_credentials %}
-    <a href="{% if authenticated %}#{% else %}/auth/google{% endif %}"
-       class="auth-badge {% if authenticated %}connected{% endif %}"
-       id="auth-badge">
-      <span class="dot"></span>
-      <span id="auth-label">{% if authenticated %}Connected{% else %}Connect Google Calendar{% endif %}</span>
-    </a>
-  {% else %}
-    <span class="auth-badge" title="Place credentials/google_creds.json to enable">No credentials</span>
-  {% endif %}
+  <div class="header-left">
+    <h1>Shift Sync</h1>
+    <p class="subtitle">Parse your roster, push to Google Calendar</p>
+  </div>
+  <div class="header-right">
+    {% if has_credentials %}
+      <a href="{% if authenticated %}#{% else %}/auth/google{% endif %}"
+         class="auth-badge {% if authenticated %}connected{% endif %}"
+         id="auth-badge">
+        <span class="dot"></span>
+        <span id="auth-label">{% if authenticated %}Connected{% else %}Connect Google Calendar{% endif %}</span>
+      </a>
+    {% else %}
+      <span class="auth-badge" title="Place credentials/google_creds.json to enable">No credentials</span>
+    {% endif %}
+    <button class="theme-toggle" id="theme-toggle" title="Toggle dark mode" aria-label="Toggle dark mode">
+      <svg class="icon-sun" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="4"/>
+        <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+      </svg>
+      <svg class="icon-moon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+      </svg>
+    </button>
+  </div>
 </header>
 
 <div class="card">
@@ -49,11 +67,11 @@ Tuesday 07/Apr/2026
     <div class="drop-zone" id="drop-zone">
       <input type="file" id="image-input" accept="image/*" />
       <div id="drop-hint">
-        <svg width="36" height="36" fill="none" stroke="#9ca3af" stroke-width="1.5" viewBox="0 0 24 24">
+        <svg width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
           <path d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"/>
         </svg>
         <p style="margin-top:0.5rem">Drop screenshot here or <strong>click to browse</strong></p>
-        <p style="font-size:0.8rem;color:#9ca3af;margin-top:0.25rem">PNG, JPG, WEBP supported</p>
+        <p class="drop-hint-sub">PNG, JPG, WEBP supported</p>
       </div>
       <img id="image-preview" class="preview-img" style="display:none" alt="Preview" />
     </div>
@@ -69,22 +87,28 @@ Tuesday 07/Apr/2026
 
 <!-- Results -->
 <div class="card" id="results-card">
-  <p class="section-title">Parsed Shifts — select which to add</p>
-  <table>
-    <thead>
-      <tr>
-        <th><input type="checkbox" id="check-all" checked title="Select all" /></th>
-        <th>Date</th>
-        <th>Start</th>
-        <th>Finish</th>
-        <th>Description</th>
-      </tr>
-    </thead>
-    <tbody id="shifts-tbody"></tbody>
-  </table>
+  <p class="section-title">Parsed Shifts</p>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th><input type="checkbox" id="check-all" checked title="Select all" /></th>
+          <th>Date</th>
+          <th>Start</th>
+          <th>Finish</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody id="shifts-tbody"></tbody>
+    </table>
+  </div>
   <div class="actions">
     <button class="btn btn-success" id="add-btn" {% if not authenticated %}disabled title="Connect Google Calendar first"{% endif %}>
       <span class="btn-label">Add to Google Calendar</span>
+      <span class="spinner"></span>
+    </button>
+    <button class="btn btn-undo" id="undo-btn">
+      <span class="btn-label">Undo Last Batch</span>
       <span class="spinner"></span>
     </button>
   </div>
@@ -92,7 +116,19 @@ Tuesday 07/Apr/2026
 
 <div id="toast"></div>
 
+<footer>
+  Design by Claude Code · Backend by <a href="https://github.com/SamJustSam-create" target="_blank" rel="noopener">Sam Moloney</a>
+</footer>
+
 <script>
+  // ── Dark mode ──────────────────────────────────────────────────
+  document.getElementById('theme-toggle').addEventListener('click', () => {
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    const next = isDark ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('theme', next);
+  });
+
   // ── Tab switching ──────────────────────────────────────────────
   let activeTab = 'text';
   document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -124,8 +160,7 @@ Tuesday 07/Apr/2026
 
   function setFile(file) {
     selectedFile = file;
-    const url = URL.createObjectURL(file);
-    imagePreview.src = url;
+    imagePreview.src = URL.createObjectURL(file);
     imagePreview.style.display = 'block';
     dropHint.style.display = 'none';
   }
@@ -162,19 +197,21 @@ Tuesday 07/Apr/2026
     const tbody = document.getElementById('shifts-tbody');
     tbody.innerHTML = '';
     shifts.forEach((s, i) => {
-      const startTime = formatTime(s.start);
-      const endTime = formatTime(s.end);
       const dateStr = formatDate(s.date);
+      const startHHMM = isoToHHMM(s.start);
+      const endHHMM = isoToHHMM(s.end);
       const uniformBadge = s.special_uniform ? '<span class="badge-uniform">Uniform</span>' : '';
       tbody.innerHTML += `
         <tr>
           <td><input type="checkbox" class="shift-check" data-idx="${i}" checked /></td>
           <td>${dateStr}</td>
-          <td>${startTime}</td>
-          <td>${endTime}</td>
-          <td>${escHtml(s.description)}${uniformBadge}</td>
+          <td><input type="time" class="edit-time" data-idx="${i}" data-field="start" value="${startHHMM}" /></td>
+          <td><input type="time" class="edit-time" data-idx="${i}" data-field="end" value="${endHHMM}" /></td>
+          <td><input type="text" class="edit-desc" data-idx="${i}" value="${escHtml(s.description)}" />${uniformBadge}</td>
         </tr>`;
     });
+    lastBatchIds = [];
+    undoBtn.style.display = 'none';
     document.getElementById('results-card').style.display = 'block';
     document.getElementById('results-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
@@ -186,8 +223,18 @@ Tuesday 07/Apr/2026
   // ── Add to Calendar ────────────────────────────────────────────
   const addBtn = document.getElementById('add-btn');
   addBtn.addEventListener('click', async () => {
-    const selected = [...document.querySelectorAll('.shift-check:checked')]
-      .map(c => parsedShifts[parseInt(c.dataset.idx)]);
+    const checkedBoxes = [...document.querySelectorAll('.shift-check:checked')];
+    const selected = checkedBoxes.map(c => {
+      const i = parseInt(c.dataset.idx);
+      const s = { ...parsedShifts[i] };
+      const startInput = document.querySelector(`.edit-time[data-idx="${i}"][data-field="start"]`);
+      const endInput   = document.querySelector(`.edit-time[data-idx="${i}"][data-field="end"]`);
+      const descInput  = document.querySelector(`.edit-desc[data-idx="${i}"]`);
+      if (startInput?.value) s.start = s.date + 'T' + startInput.value + ':00';
+      if (endInput?.value)   s.end   = s.date + 'T' + endInput.value   + ':00';
+      if (descInput)         s.description = descInput.value;
+      return s;
+    });
     if (!selected.length) { showToast('No shifts selected', true); return; }
 
     setLoading(addBtn, true);
@@ -199,7 +246,7 @@ Tuesday 07/Apr/2026
       });
       const data = await res.json();
       if (!res.ok) { showToast(data.error || 'Failed', true); return; }
-      showResults(data.results);
+      showResults(data.results, checkedBoxes);
     } catch(e) {
       showToast('Network error: ' + e.message, true);
     } finally {
@@ -207,37 +254,72 @@ Tuesday 07/Apr/2026
     }
   });
 
-  function showResults(results) {
+  function showResults(results, checkedBoxes) {
     const ok = results.filter(r => r.success).length;
     const fail = results.length - ok;
-    // Update table rows with status icons
-    const checks = document.querySelectorAll('.shift-check');
+    const successIds = [];
+
     results.forEach((r, i) => {
-      const row = checks[i]?.closest('tr');
+      const row = checkedBoxes[i]?.closest('tr');
       if (!row) return;
       const firstCell = row.cells[0];
       if (r.success) {
         firstCell.innerHTML = '<span class="status-ok">✓</span>';
-        if (r.link) row.cells[4].innerHTML += ` <a href="${r.link}" target="_blank" style="font-size:0.8rem;color:#4f46e5">View</a>`;
+        if (r.event_id) successIds.push(r.event_id);
+        if (r.link) row.cells[4].innerHTML += ` <a href="${r.link}" target="_blank" style="font-size:0.8rem;color:var(--accent)">View</a>`;
       } else {
         firstCell.innerHTML = '<span class="status-err">✗</span>';
         row.title = r.error || 'Error';
       }
     });
+
     showToast(`${ok} event${ok !== 1 ? 's' : ''} added${fail ? `, ${fail} failed` : ''}.`);
+    if (successIds.length) {
+      lastBatchIds = successIds;
+      undoBtn.style.display = 'inline-flex';
+    }
   }
 
+  // ── Undo last batch ────────────────────────────────────────────
+  let lastBatchIds = [];
+  const undoBtn = document.getElementById('undo-btn');
+
+  undoBtn.addEventListener('click', async () => {
+    if (!lastBatchIds.length) return;
+    setLoading(undoBtn, true);
+    try {
+      const res = await fetch('/undo-events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event_ids: lastBatchIds }),
+      });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error || 'Undo failed', true); return; }
+      const ok = data.results.filter(r => r.success).length;
+      showToast(`${ok} event${ok !== 1 ? 's' : ''} removed from Calendar.`);
+      lastBatchIds = [];
+      undoBtn.style.display = 'none';
+    } catch(e) {
+      showToast('Network error: ' + e.message, true);
+    } finally {
+      setLoading(undoBtn, false);
+    }
+  });
+
   // ── Helpers ────────────────────────────────────────────────────
-  function formatTime(iso) {
-    const d = new Date(iso);
-    return d.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: true });
+  function isoToHHMM(iso) {
+    return iso.substring(11, 16);
   }
   function formatDate(iso) {
     const d = new Date(iso + 'T00:00:00');
     return d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
   }
   function escHtml(s) {
-    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
   function setLoading(btn, on) {
     btn.classList.toggle('loading', on);
